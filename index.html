@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pinchpad</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #000;
+    overflow: hidden;
+    font-family: 'Space Mono', monospace;
+    color: #fff;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  #webcam { display: none; }
+
+  #bgCanvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+    filter: grayscale(100%) brightness(0.45);
+  }
+
+  #overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding-top: 20px;
+    z-index: 10;
+  }
+
+  #loading {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    z-index: 999;
+    transition: opacity 0.6s;
+  }
+  #loading.hidden { opacity: 0; pointer-events: none; }
+  #loading h1 { font-size: 2rem; letter-spacing: 0.3em; margin-bottom: 1rem; }
+  #loading p { opacity: 0.5; font-size: 0.85rem; }
+
+  .loader {
+    width: 40px; height: 40px;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: #F4945E;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 1.5rem 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #stepNumbers {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 6px;
+    padding-left: 110px;
+  }
+  .step-num {
+    width: 88px;
+    text-align: center;
+    font-size: 1rem;
+    opacity: 0.3;
+    transition: all 0.15s;
+    font-weight: 700;
+  }
+  .step-num.active {
+    opacity: 1;
+    font-size: 1.4rem;
+    color: #F4945E;
+  }
+
+  #grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: rgba(0,0,0,0.35);
+    padding: 20px;
+    border-radius: 8px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .row { display: flex; align-items: center; gap: 4px; }
+
+  .row-label {
+    width: 90px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-align: right;
+    padding-right: 12px;
+    opacity: 0.7;
+  }
+
+  .cell {
+    width: 88px;
+    height: 68px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.12s;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .cell.off { background: rgba(255,255,255,0.04); }
+  .cell.off:hover { background: rgba(255,255,255,0.08); }
+  .cell.on.kick   { background: #F4945E; box-shadow: 0 0 12px rgba(244,148,94,0.3); }
+  .cell.on.snare  { background: #E8D44D; box-shadow: 0 0 12px rgba(232,212,77,0.3); }
+  .cell.on.hihat  { background: #5CE0C8; box-shadow: 0 0 12px rgba(92,224,200,0.3); }
+  .cell.on.clap   { background: #E85B8A; box-shadow: 0 0 12px rgba(232,91,138,0.3); }
+  .cell.playing { filter: brightness(1.4); transform: scale(1.05); }
+
+  #controls {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-top: 14px;
+    padding-left: 110px;
+  }
+
+  .btn {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    padding: 8px 18px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.06);
+    color: #fff;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn:hover, .btn.hand-hover { background: rgba(255,255,255,0.12); }
+  .btn.locked-active { background: #F4945E; color: #000; border-color: #F4945E; }
+  .btn.locked-active:hover, .btn.locked-active.hand-hover { background: #e0824a; }
+
+  .bpm-wrap { display: flex; align-items: center; gap: 10px; }
+  .bpm-wrap label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.15em; opacity: 0.7; }
+
+  #bpmSlider {
+    -webkit-appearance: none;
+    width: 200px;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.12);
+    outline: none;
+  }
+  #bpmSlider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: #fff;
+    cursor: pointer;
+    box-shadow: 0 0 6px rgba(0,0,0,0.4);
+  }
+  #bpmVal { font-size: 1rem; font-weight: 700; min-width: 36px; text-align: center; }
+
+  #handCursor {
+    position: fixed;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.5);
+    pointer-events: none;
+    z-index: 100;
+    transform: translate(-50%, -50%);
+    transition: width 0.1s, height 0.1s, background 0.1s, border-color 0.1s;
+    display: none;
+  }
+  #handCursor.pinching {
+    width: 18px; height: 18px;
+    background: rgba(244,148,94,0.6);
+    border-color: #F4945E;
+    box-shadow: 0 0 16px rgba(244,148,94,0.5);
+  }
+
+  #instructions {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    opacity: 0.35;
+    text-align: center;
+    z-index: 10;
+  }
+
+  #subtitle {
+    font-size: 0.7rem;
+    letter-spacing: 0.25em;
+    opacity: 0.4;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+
+<video id="webcam" autoplay playsinline></video>
+<canvas id="bgCanvas"></canvas>
+
+<div id="loading">
+  <h1>PINCHPAD</h1>
+  <div class="loader"></div>
+  <p>loading hand tracking...</p>
+</div>
+
+<div id="overlay">
+  <div id="subtitle">PINCH TO PLACE BEATS</div>
+  <div id="stepNumbers"></div>
+  <div id="grid"></div>
+  <div id="controls">
+    <button class="btn" id="playBtn">PLAY</button>
+    <button class="btn" id="clearBtn">CLEAR</button>
+    <button class="btn" id="lockBtn">LOCK</button>
+    <div class="bpm-wrap">
+      <label>BPM</label>
+      <input type="range" id="bpmSlider" min="60" max="200" value="120">
+      <span id="bpmVal">120</span>
+    </div>
+  </div>
+</div>
+
+<div id="handCursor"></div>
+<div id="instructions">PINCH THUMB + INDEX OVER A CELL TO TOGGLE &nbsp;|&nbsp; CLICK WORKS TOO</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js" crossorigin="anonymous"></script>
+<script>
+
+const STEPS = 8;
+const INSTRUMENTS = ['kick', 'snare', 'hihat', 'clap'];
+const LABELS = { kick: 'KICK', snare: 'SNARE', hihat: 'HI-HAT', clap: 'CLAP' };
+
+let grid = {};
+INSTRUMENTS.forEach(inst => grid[inst] = new Array(STEPS).fill(0));
+
+let bpm = 120;
+let playing = false;
+let currentStep = 0;
+let timerID = null;
+let nextStepTime = 0;
+let wasPinching = false;
+let lastToggleTime = 0;
+let locked = false;
+
+/* ── audio engine ── */
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+// master: warmth lpf → compressor → speakers
+const warmth = audioCtx.createBiquadFilter();
+warmth.type = 'lowpass';
+warmth.frequency.value = 9000;
+warmth.Q.value = 0.5;
+const compressor = audioCtx.createDynamicsCompressor();
+compressor.threshold.value = -12;
+compressor.knee.value = 10;
+compressor.ratio.value = 4;
+warmth.connect(compressor).connect(audioCtx.destination);
+
+function playKick(time) {
+  const sub = audioCtx.createOscillator();
+  const subGain = audioCtx.createGain();
+  sub.type = 'sine';
+  sub.frequency.setValueAtTime(120, time);
+  sub.frequency.exponentialRampToValueAtTime(35, time + 0.25);
+  subGain.gain.setValueAtTime(1.0, time);
+  subGain.gain.exponentialRampToValueAtTime(0.001, time + 0.45);
+  sub.connect(subGain).connect(warmth);
+  sub.start(time); sub.stop(time + 0.45);
+
+  const click = audioCtx.createOscillator();
+  const clickGain = audioCtx.createGain();
+  click.type = 'triangle';
+  click.frequency.setValueAtTime(200, time);
+  click.frequency.exponentialRampToValueAtTime(60, time + 0.04);
+  clickGain.gain.setValueAtTime(0.6, time);
+  clickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
+  click.connect(clickGain).connect(warmth);
+  click.start(time); click.stop(time + 0.05);
+}
+
+function playSnare(time) {
+  const len = audioCtx.sampleRate * 0.18;
+  const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buf;
+  const hp = audioCtx.createBiquadFilter();
+  hp.type = 'highpass'; hp.frequency.value = 600;
+  const lp = audioCtx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 7000;
+  const nGain = audioCtx.createGain();
+  nGain.gain.setValueAtTime(0.55, time);
+  nGain.gain.exponentialRampToValueAtTime(0.001, time + 0.18);
+  noise.connect(hp).connect(lp).connect(nGain).connect(warmth);
+  noise.start(time); noise.stop(time + 0.18);
+
+  const osc = audioCtx.createOscillator();
+  const oGain = audioCtx.createGain();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(200, time);
+  osc.frequency.exponentialRampToValueAtTime(120, time + 0.06);
+  oGain.gain.setValueAtTime(0.7, time);
+  oGain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+  osc.connect(oGain).connect(warmth);
+  osc.start(time); osc.stop(time + 0.1);
+}
+
+function playHihat(time) {
+  const len = audioCtx.sampleRate * 0.08;
+  const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buf;
+  const hp = audioCtx.createBiquadFilter();
+  hp.type = 'highpass'; hp.frequency.value = 5500;
+  const lp = audioCtx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 12000;
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.25, time);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+  noise.connect(hp).connect(lp).connect(gain).connect(warmth);
+  noise.start(time); noise.stop(time + 0.08);
+}
+
+function playClap(time) {
+  const len = audioCtx.sampleRate * 0.15;
+  const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buf;
+  const bp = audioCtx.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 1.5;
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0, time);
+  gain.gain.setValueAtTime(0.5, time + 0.005);
+  gain.gain.setValueAtTime(0.15, time + 0.015);
+  gain.gain.setValueAtTime(0.55, time + 0.025);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
+  noise.connect(bp).connect(gain).connect(warmth);
+  noise.start(time); noise.stop(time + 0.15);
+}
+
+const soundMap = { kick: playKick, snare: playSnare, hihat: playHihat, clap: playClap };
+
+/* ── sequencer (lookahead scheduler for tight timing) ── */
+
+const scheduleAheadTime = 0.1;
+const lookahead = 25;
+
+function scheduleStep(step, time) {
+  INSTRUMENTS.forEach(inst => { if (grid[inst][step]) soundMap[inst](time); });
+}
+
+function advanceStep() {
+  nextStepTime += 60.0 / bpm / 2; // 8th note subdivision
+  currentStep = (currentStep + 1) % STEPS;
+}
+
+function scheduler() {
+  while (nextStepTime < audioCtx.currentTime + scheduleAheadTime) {
+    scheduleStep(currentStep, nextStepTime);
+    advanceStep();
+  }
+  timerID = setTimeout(scheduler, lookahead);
+}
+
+function startPlaying() {
+  if (playing) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  playing = true;
+  currentStep = 0;
+  nextStepTime = audioCtx.currentTime;
+  scheduler();
+  playBtn.textContent = 'STOP';
+}
+
+function stopPlaying() {
+  playing = false;
+  clearTimeout(timerID);
+  currentStep = 0;
+  playBtn.textContent = 'PLAY';
+  updatePlayhead();
+}
+
+/* ── UI ── */
+
+const gridEl = document.getElementById('grid');
+const stepNumsEl = document.getElementById('stepNumbers');
+const playBtn = document.getElementById('playBtn');
+const clearBtn = document.getElementById('clearBtn');
+const bpmSlider = document.getElementById('bpmSlider');
+const bpmVal = document.getElementById('bpmVal');
+const handCursor = document.getElementById('handCursor');
+const lockBtn = document.getElementById('lockBtn');
+
+for (let i = 0; i < STEPS; i++) {
+  const s = document.createElement('div');
+  s.className = 'step-num';
+  s.textContent = i + 1;
+  s.id = `sn-${i}`;
+  stepNumsEl.appendChild(s);
+}
+
+const cellElements = {};
+INSTRUMENTS.forEach(inst => {
+  const row = document.createElement('div');
+  row.className = 'row';
+  const label = document.createElement('div');
+  label.className = 'row-label';
+  label.textContent = LABELS[inst];
+  row.appendChild(label);
+  cellElements[inst] = [];
+  for (let i = 0; i < STEPS; i++) {
+    const cell = document.createElement('div');
+    cell.className = `cell off ${inst}`;
+    cell.addEventListener('click', () => toggleCell(inst, i));
+    row.appendChild(cell);
+    cellElements[inst].push(cell);
+  }
+  gridEl.appendChild(row);
+});
+
+function toggleCell(inst, step) {
+  grid[inst][step] = grid[inst][step] ? 0 : 1;
+  updateGridUI();
+  if (grid[inst][step] && audioCtx.state !== 'suspended') soundMap[inst](audioCtx.currentTime);
+}
+
+function updateGridUI() {
+  INSTRUMENTS.forEach(inst => {
+    for (let i = 0; i < STEPS; i++) {
+      cellElements[inst][i].className = grid[inst][i] ? `cell on ${inst}` : `cell off ${inst}`;
+    }
+  });
+}
+
+function updatePlayhead() {
+  INSTRUMENTS.forEach(inst => {
+    for (let i = 0; i < STEPS; i++)
+      cellElements[inst][i].classList.toggle('playing', playing && i === currentStep);
+  });
+  for (let i = 0; i < STEPS; i++)
+    document.getElementById(`sn-${i}`).classList.toggle('active', playing && i === currentStep);
+}
+
+function visualLoop() { updatePlayhead(); requestAnimationFrame(visualLoop); }
+visualLoop();
+
+playBtn.addEventListener('click', () => {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  playing ? stopPlaying() : startPlaying();
+});
+
+clearBtn.addEventListener('click', () => {
+  INSTRUMENTS.forEach(inst => grid[inst].fill(0));
+  updateGridUI();
+});
+
+bpmSlider.addEventListener('input', (e) => {
+  bpm = parseInt(e.target.value);
+  bpmVal.textContent = bpm;
+});
+
+lockBtn.addEventListener('click', () => {
+  locked = !locked;
+  lockBtn.textContent = locked ? 'UNLOCK' : 'LOCK';
+  lockBtn.classList.toggle('locked-active', locked);
+});
+
+/* ── webcam + mediapipe hands ── */
+
+const video = document.getElementById('webcam');
+const canvas = document.getElementById('bgCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// hit test using actual element rects so it works at any screen size
+function getCellFromPosition(x, y) {
+  for (const inst of INSTRUMENTS) {
+    for (let i = 0; i < STEPS; i++) {
+      const r = cellElements[inst][i].getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return { inst, step: i };
+    }
+  }
+  return null;
+}
+
+function onHandResults(results) {
+  ctx.save();
+  ctx.translate(canvas.width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+  ctx.restore();
+
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+    const lm = results.multiHandLandmarks[0];
+    const thumb = lm[4], index = lm[8];
+
+    // cursor position (mirrored x so it feels natural)
+    const mx = (1 - (thumb.x + index.x) / 2) * window.innerWidth;
+    const my = ((thumb.y + index.y) / 2) * window.innerHeight;
+
+    handCursor.style.display = 'block';
+    handCursor.style.left = mx + 'px';
+    handCursor.style.top = my + 'px';
+
+    // highlight buttons on hover
+    document.querySelectorAll('.btn').forEach(b => b.classList.remove('hand-hover'));
+    const hoverEl = document.elementFromPoint(mx, my);
+    if (hoverEl) {
+      const btn = hoverEl.closest('.btn') || (hoverEl.classList.contains('btn') ? hoverEl : null);
+      if (btn) btn.classList.add('hand-hover');
+    }
+
+    // pinch detection using thumb-index distance (includes z depth)
+    const dx = thumb.x - index.x;
+    const dy = thumb.y - index.y;
+    const dz = (thumb.z || 0) - (index.z || 0);
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const isPinching = dist < 0.065;
+    handCursor.classList.toggle('pinching', isPinching);
+
+    const now = Date.now();
+    if (isPinching && !wasPinching && (now - lastToggleTime > 300)) {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+
+      if (locked) {
+        // when locked only the unlock button responds to pinch
+        handCursor.style.display = 'none';
+        const el = document.elementFromPoint(mx, my);
+        handCursor.style.display = 'block';
+        const b = el && (el.closest('.btn') || (el.classList.contains('btn') ? el : null));
+        if (b && b.id === 'lockBtn') { b.click(); lastToggleTime = now; }
+      } else {
+        const cell = getCellFromPosition(mx, my);
+        if (cell) {
+          toggleCell(cell.inst, cell.step);
+          lastToggleTime = now;
+        } else {
+          handCursor.style.display = 'none';
+          const el = document.elementFromPoint(mx, my);
+          handCursor.style.display = 'block';
+          if (el && (el.classList.contains('btn') || el.closest('.btn'))) {
+            (el.closest('.btn') || el).click();
+            lastToggleTime = now;
+          }
+        }
+      }
+    }
+    wasPinching = isPinching;
+  } else {
+    handCursor.style.display = 'none';
+    wasPinching = false;
+    document.querySelectorAll('.btn').forEach(b => b.classList.remove('hand-hover'));
+  }
+}
+
+async function initHands() {
+  const hands = new Hands({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`
+  });
+  hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.6 });
+  hands.onResults(onHandResults);
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+    video.srcObject = stream;
+    await video.play();
+    const cam = new Camera(video, {
+      onFrame: async () => { await hands.send({ image: video }); },
+      width: 1280, height: 720
+    });
+    cam.start();
+    setTimeout(() => document.getElementById('loading').classList.add('hidden'), 2000);
+  } catch (err) {
+    console.error('Webcam error:', err);
+    document.getElementById('loading').innerHTML = `
+      <h1>PINCHPAD</h1>
+      <p style="opacity:0.7; margin-top:1rem;">webcam access needed — allow camera permission and reload</p>
+      <p style="opacity:0.35; margin-top:0.5rem; font-size:0.7rem;">you can still click cells to use the drum pad</p>
+      <button class="btn" style="margin-top:1.5rem;" onclick="this.parentElement.classList.add('hidden')">CONTINUE WITHOUT CAMERA</button>
+    `;
+  }
+}
+
+initHands();
+</script>
+</body>
+</html>
