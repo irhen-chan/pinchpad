@@ -69,6 +69,3 @@ all four instruments are synthesized, no audio files:
 
 everything routes through a 9kHz lowpass warmth filter → dynamics compressor → speakers.
 
-## license
-
-MIT — do whatever you want with it.
